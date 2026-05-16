@@ -8,7 +8,7 @@
 
   export type DialPosition = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
   export type DialMode = 'popover' | 'inline';
-  export type DialTheme = 'light' | 'dark' | 'system';
+  export type DialTheme = 'light' | 'dark' | 'system' | 'frosted';
 
   declare const process: { env?: { NODE_ENV?: string } } | undefined;
 

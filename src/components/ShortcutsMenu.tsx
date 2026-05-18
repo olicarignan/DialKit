@@ -31,12 +31,18 @@ export function ShortcutsMenu({ panelId }: ShortcutsMenuProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [themeAttrs, setThemeAttrs] = useState<{ theme?: string; frostedMode?: string }>({});
 
   const open = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
       setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
     }
+    const rootEl = triggerRef.current?.closest('.dialkit-root') as HTMLElement | null;
+    setThemeAttrs({
+      theme: rootEl?.getAttribute('data-theme') ?? undefined,
+      frostedMode: rootEl?.getAttribute('data-frosted-mode') ?? undefined,
+    });
     setIsOpen(true);
   }, []);
 
@@ -116,6 +122,8 @@ export function ShortcutsMenu({ panelId }: ShortcutsMenuProps) {
             <motion.div
               ref={dropdownRef}
               className="dialkit-root dialkit-shortcuts-dropdown"
+              data-theme={themeAttrs.theme}
+              data-frosted-mode={themeAttrs.frostedMode}
               style={{ position: 'fixed', top: pos.top, right: pos.right }}
               initial={{ opacity: 0, y: 4, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}

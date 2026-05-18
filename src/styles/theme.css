@@ -1291,12 +1291,144 @@
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-/* ── Frosted Theme — pure transparent glass, color inherited from background ── */
+/* ── Frosted Theme — pure transparent glass, borderless with layered shadows ── */
+/* Defaults to dark variant; light variant applied via prefers-color-scheme below, mirroring "system" theme */
 .dialkit-root[data-theme="frosted"] {
-  --dial-surface: rgba(255, 255, 255, 0.14);
-  --dial-surface-hover: rgba(255, 255, 255, 0.22);
-  --dial-surface-active: rgba(255, 255, 255, 0.28);
-  --dial-surface-subtle: rgba(255, 255, 255, 0.08);
+  --dial-surface: rgba(255, 255, 255, 0.08);
+  --dial-surface-hover: rgba(255, 255, 255, 0.14);
+  --dial-surface-active: rgba(255, 255, 255, 0.2);
+  --dial-surface-subtle: rgba(255, 255, 255, 0.06);
+
+  --dial-text-root: #ffffff;
+  --dial-text-section: rgba(255, 255, 255, 0.72);
+  --dial-text-label: rgba(255, 255, 255, 0.72);
+  --dial-text-focus: #ffffff;
+
+  --dial-text-primary: rgba(255, 255, 255, 0.95);
+  --dial-text-secondary: rgba(255, 255, 255, 0.6);
+  --dial-text-tertiary: rgba(255, 255, 255, 0.4);
+
+  --dial-border: transparent;
+  --dial-border-hover: rgba(255, 255, 255, 0.3);
+
+  --dial-glass-bg: rgba(20, 20, 20, 0.45);
+  --dial-dropdown-bg: #1c1c1c;
+  --dial-backdrop-blur: 32px;
+  --dial-radius: 12px;
+  /* Concentric corners: inner items inset by 4px of dropdown padding */
+  --dial-radius-inset: calc(var(--dial-radius) - 4px);
+  --dial-row-height: 36px;
+
+  /* Layered shadows replace borders: inner highlight, hairline edge, soft ambient drop */
+  --dial-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 8px 24px rgba(0, 0, 0, 0.22);
+  --dial-shadow-collapsed:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+  --dial-shadow-dropdown:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 8px 22px rgba(0, 0, 0, 0.24);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-panel-inner {
+  border: none;
+  border-radius: 20px;
+  box-shadow: var(--dial-shadow);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-panel-inner[data-collapsed="true"] {
+  box-shadow: var(--dial-shadow-collapsed);
+}
+
+/* Dropdowns: solid surface using the theme's dropdown color, no border, layered shadow */
+.dialkit-root[data-theme="frosted"] .dialkit-select-dropdown,
+.dialkit-root[data-theme="frosted"] .dialkit-preset-dropdown,
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-dropdown {
+  border: none;
+  background: var(--dial-dropdown-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--dial-shadow-dropdown);
+}
+
+/* Breathing room between dropdown items */
+.dialkit-root[data-theme="frosted"] .dialkit-select-option + .dialkit-select-option,
+.dialkit-root[data-theme="frosted"] .dialkit-preset-item + .dialkit-preset-item,
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row + .dialkit-shortcuts-row {
+  margin-top: 4px;
+}
+
+/* Standardize shortcuts dropdown padding to 4px so the concentric inset formula holds */
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-dropdown {
+  padding: 4px;
+}
+
+/* Inner items use the inset radius so corners are concentric with their dropdown */
+.dialkit-root[data-theme="frosted"] .dialkit-select-option,
+.dialkit-root[data-theme="frosted"] .dialkit-preset-item,
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row {
+  border-radius: var(--dial-radius-inset);
+}
+
+/* Rounded slider fill so it reads as a soft pill within the track */
+.dialkit-root[data-theme="frosted"] .dialkit-slider-fill {
+  border-radius: var(--dial-radius);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-slider-handle {
+  background: #ffffff;
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-slider-active .dialkit-slider-fill {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-slider-active .dialkit-slider-hashmark {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-toggle-track {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-track {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-thumb {
+  background: #1a1a1a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-toggle-thumb {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-spring-viz line {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-spring-viz line[stroke-dasharray] {
+  stroke: rgba(255, 255, 255, 0.2);
+}
+
+.dialkit-root[data-theme="frosted"] .dialkit-spring-viz path {
+  stroke: rgba(255, 255, 255, 0.55);
+}
+
+/* Frosted — light variant: applied when JS detects the page background is light */
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] {
+  --dial-surface: rgba(255, 255, 255, 0.22);
+  --dial-surface-hover: rgba(255, 255, 255, 0.32);
+  --dial-surface-active: rgba(255, 255, 255, 0.42);
+  --dial-surface-subtle: rgba(255, 255, 255, 0.1);
 
   --dial-text-root: #1a1a1a;
   --dial-text-section: rgba(0, 0, 0, 0.62);
@@ -1307,66 +1439,79 @@
   --dial-text-secondary: rgba(0, 0, 0, 0.52);
   --dial-text-tertiary: rgba(0, 0, 0, 0.32);
 
-  --dial-border: rgba(255, 255, 255, 0.5);
-  --dial-border-hover: rgba(255, 255, 255, 0.65);
+  --dial-border: transparent;
+  --dial-border-hover: rgba(255, 255, 255, 0.55);
 
-  /* Pure frosted glass — no color tint, inherits from background via blur */
   --dial-glass-bg: rgba(255, 255, 255, 0.18);
-  --dial-dropdown-bg: rgba(255, 255, 255, 0.88);
-  --dial-backdrop-blur: 32px;
-  --dial-radius: 12px;
-  --dial-row-height: 36px;
-  --dial-shadow: 0 4px 28px rgba(0, 0, 0, 0.07);
-  --dial-shadow-collapsed: 0 2px 12px rgba(0, 0, 0, 0.05);
-  --dial-shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --dial-dropdown-bg: #fafafa;
+
+  --dial-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.025),
+    0 6px 18px rgba(0, 0, 0, 0.05);
+  --dial-shadow-collapsed:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.025),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+  --dial-shadow-dropdown:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 6px 18px rgba(0, 0, 0, 0.06);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-panel-inner {
-  border-color: rgba(255, 255, 255, 0.45);
-  border-radius: 20px;
-}
-
-.dialkit-root[data-theme="frosted"] .dialkit-slider-handle {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-slider-handle {
   background: #1e1e1e;
 }
 
-/* Active slider fill and hashmarks should use dark tints, not white */
-.dialkit-root[data-theme="frosted"] .dialkit-slider-active .dialkit-slider-fill {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-slider-active .dialkit-slider-fill {
   background: rgba(0, 0, 0, 0.12);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-slider-active .dialkit-slider-hashmark {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-slider-active .dialkit-slider-hashmark {
   background: rgba(0, 0, 0, 0.15);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-toggle-track {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-toggle-track {
   background: rgba(0, 0, 0, 0.12);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-track {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-track {
   background: #2a2a2a;
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-thumb {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-toggle[data-checked="true"] .dialkit-toggle-thumb {
   background: #ffffff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.18);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-toggle-thumb {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-toggle-thumb {
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-spring-viz line {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-spring-viz line {
   stroke: rgba(0, 0, 0, 0.08);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-spring-viz line[stroke-dasharray] {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-spring-viz line[stroke-dasharray] {
   stroke: rgba(0, 0, 0, 0.14);
 }
 
-.dialkit-root[data-theme="frosted"] .dialkit-spring-viz path {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-spring-viz path {
   stroke: rgba(0, 0, 0, 0.45);
+}
+
+/* Light frosted dropdowns: panel surfaces use white tints which disappear on the solid white dropdown — use black tints for hover/active contrast */
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-select-option:hover,
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-preset-item:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-select-option[data-selected="true"],
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-preset-item[data-active="true"] {
+  background: rgba(0, 0, 0, 0.12);
 }
 
 /* ── System preference: light ── */

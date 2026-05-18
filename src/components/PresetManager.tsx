@@ -16,6 +16,7 @@ export function PresetManager({ panelId, presets, activePresetId, onAdd }: Prese
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const [themeAttrs, setThemeAttrs] = useState<{ theme?: string; frostedMode?: string }>({});
 
   const hasPresets = presets.length > 0;
   const activePreset = presets.find((p) => p.id === activePresetId);
@@ -26,6 +27,11 @@ export function PresetManager({ panelId, presets, activePresetId, onAdd }: Prese
     if (rect) {
       setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
     }
+    const rootEl = triggerRef.current?.closest('.dialkit-root') as HTMLElement | null;
+    setThemeAttrs({
+      theme: rootEl?.getAttribute('data-theme') ?? undefined,
+      frostedMode: rootEl?.getAttribute('data-frosted-mode') ?? undefined,
+    });
     setIsOpen(true);
   }, [hasPresets]);
 
@@ -101,6 +107,8 @@ export function PresetManager({ panelId, presets, activePresetId, onAdd }: Prese
             <motion.div
               ref={dropdownRef}
               className="dialkit-root dialkit-preset-dropdown"
+              data-theme={themeAttrs.theme}
+              data-frosted-mode={themeAttrs.frostedMode}
               style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
               initial={{ opacity: 0, y: 4, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}

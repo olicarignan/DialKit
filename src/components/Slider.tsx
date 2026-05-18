@@ -59,7 +59,7 @@ export function Slider({
   const fillPercent = useMotionValue(percentage);
   const fillWidth = useTransform(fillPercent, (pct) => `${pct}%`);
   const handleLeft = useTransform(fillPercent, (pct) =>
-    `max(5px, calc(${pct}% - 9px))`
+    `max(8px, calc(${pct}% - 11px))`
   );
 
   // Rubber band motion values

@@ -1425,10 +1425,11 @@
 
 /* Frosted — light variant: applied when JS detects the page background is light */
 .dialkit-root[data-theme="frosted"][data-frosted-mode="light"] {
-  --dial-surface: rgba(255, 255, 255, 0.22);
-  --dial-surface-hover: rgba(255, 255, 255, 0.32);
-  --dial-surface-active: rgba(255, 255, 255, 0.42);
-  --dial-surface-subtle: rgba(255, 255, 255, 0.1);
+  /* Black-tinted control surfaces so each dial reads as light grey on plain white backgrounds */
+  --dial-surface: rgba(0, 0, 0, 0.06);
+  --dial-surface-hover: rgba(0, 0, 0, 0.1);
+  --dial-surface-active: rgba(0, 0, 0, 0.14);
+  --dial-surface-subtle: rgba(0, 0, 0, 0.04);
 
   --dial-text-root: #1a1a1a;
   --dial-text-section: rgba(0, 0, 0, 0.62);

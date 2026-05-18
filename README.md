@@ -12,10 +12,49 @@ To learn more about how I use DialKit, and approach design in general, feel free
 - **Keep PRs small and focused.** Each pull request should address a single change — one bug fix, one feature, or one refactor. Avoid bundling unrelated changes together.
 - **No unnecessary dependencies.** If your change can be accomplished without adding a new dependency, it should be. Any new dependency needs justification in the PR description.
 
+## What's different in this fork
+
+This fork keeps the original DialKit API but reworks the visual layer and a few interaction details. Concretely:
+
+- **Frosted theme, redesigned.** Borderless glass with a layered shadow system (inner top highlight, hairline inset edge, soft ambient drop) — no hard 1px borders anywhere on the panel or dropdowns.
+- **Light/dark follows page content, not the OS.** When `theme="frosted"` is active, the panel reads `document.body` / `document.documentElement`'s computed background luminance and flips the panel's variant to match. Toggle dark mode in your app and the panel flips with it. No `prefers-color-scheme` dependency.
+- **Solid dropdowns tinted to match dial controls.** Select/preset/shortcut dropdowns use a solid color tuned to look like a dial sitting on the glass panel, instead of plain white/black popovers. Inner items use `--dial-radius-inset = calc(--dial-radius - 4px)` so corners stay concentric with their dropdown.
+- **Light-mode legibility.** Individual dial surfaces use black tints (not white) in light mode, so each control reads as light grey on plain white backgrounds.
+- **Snap-to-corner with eased bounce.** Releasing the dragged collapsed bubble snaps it to whichever of the four screen corners it's nearest, animated with an `easeOutBack` tween. Grabbing the bubble mid-animation cancels the tween.
+- **Slider polish.** Slider fills have a border-radius matching the track; handle clearance is symmetric 8px both sides.
+- **Typography.** All monospace usages (slider values, hex inputs, shortcut keys) switched to a sans family at weight 460 with -0.00563rem letter-spacing.
+- **Portal-aware theming.** The preset dropdown and shortcuts menu are portaled to `document.body`; they now mirror `data-theme` and `data-frosted-mode` from their parent panel so theme overrides apply correctly.
+- **Distributed via git, not npm.** See the install section below.
+
+## Installation
+
+This is a fork — install it directly from GitHub, no npm publish required:
+
+```bash
+npm install <your-github-username>/dialkit motion
+```
+
+Pin to a specific tag or commit for reproducible builds:
+
+```bash
+npm install <your-github-username>/dialkit#v1.2.0 motion
+npm install <your-github-username>/dialkit#a1b2c3d motion
+```
+
+A `prepare` script builds the package automatically after install — devDependencies are fetched for git installs by default, so consumers don't need to run anything extra. The same syntax works with `yarn add` and `pnpm add`.
+
+Once installed, `dialkit` is the package name in `node_modules`, so all imports below stay as `from 'dialkit'` (or `'dialkit/solid'`, `'dialkit/svelte'`, `'dialkit/vue'`).
+
+To update later, point at a newer tag or commit and reinstall:
+
+```bash
+npm install <your-github-username>/dialkit#<new-tag>
+```
+
 ## Quick Start
 
 ```bash
-npm install dialkit motion
+npm install <your-github-username>/dialkit motion
 ```
 
 ```tsx

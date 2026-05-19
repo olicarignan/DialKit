@@ -1271,11 +1271,7 @@ class DialStoreClass {
     const state = this.playback.get(panelId);
     if (!state || state.status !== 'playing') return;
 
-    // Compute the live playhead so resume picks up where we paused
-    const anchor = this.playbackStart.get(panelId);
-    const playheadMs = anchor
-      ? anchor.playheadMs + (performance.now() - anchor.wallTime) * state.speed * state.direction
-      : state.playheadMs;
+    const playheadMs = this.computeLivePlayhead(panelId, state);
 
     const raf = this.playbackRaf.get(panelId);
     if (raf !== undefined) cancelAnimationFrame(raf);
@@ -1319,11 +1315,11 @@ class DialStoreClass {
   }
 
   setPlaybackSpeed(panelId: string, speed: number): void {
-    const clamped = Math.max(0.25, Math.min(4, speed));
+    const clamped = Math.max(0, Math.min(2, speed));
     const existing = this.playback.get(panelId) ?? defaultPlaybackState();
-    // If we're playing, re-anchor the wall clock so the new speed applies from "now"
+    // Re-anchor against the *live* playhead so the new speed applies cleanly from "now"
     if (existing.status === 'playing') {
-      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: existing.playheadMs });
+      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: this.computeLivePlayhead(panelId, existing) });
     }
     this.playback.set(panelId, { ...existing, speed: clamped });
     this.notifyPlayback(panelId);
@@ -1332,12 +1328,20 @@ class DialStoreClass {
   setPlaybackDirection(panelId: string, direction: 1 | -1): void {
     const existing = this.playback.get(panelId) ?? defaultPlaybackState();
     if (existing.status === 'playing') {
-      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: existing.playheadMs });
+      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: this.computeLivePlayhead(panelId, existing) });
     }
     // Reversing out of 'ended' should re-enable playing
     const status = existing.status === 'ended' && existing.direction !== direction ? 'paused' : existing.status;
     this.playback.set(panelId, { ...existing, direction, status });
     this.notifyPlayback(panelId);
+  }
+
+  // Compute the current playhead from the wall-time anchor + elapsed * speed * direction.
+  // Used when transport parameters change mid-playback so we don't reset to a stale playheadMs.
+  private computeLivePlayhead(panelId: string, state: PlaybackState): number {
+    const anchor = this.playbackStart.get(panelId);
+    if (!anchor) return state.playheadMs;
+    return anchor.playheadMs + (performance.now() - anchor.wallTime) * state.speed * state.direction;
   }
 
   setPlaybackLoop(panelId: string, loop: boolean): void {
@@ -1372,6 +1376,14 @@ class DialStoreClass {
       const timeline = this.playbackTimeline.get(panelId);
       const anchor = this.playbackStart.get(panelId);
       if (!state || state.status !== 'playing' || !timeline || timeline.length < 2 || !anchor) {
+        return;
+      }
+
+      // speed=0 freezes the playhead. Keep the rAF alive so resuming is instant, but skip
+      // the interpolation work so we don't re-dispatch the same values every frame.
+      if (state.speed === 0) {
+        const rafIdle = requestAnimationFrame(tick);
+        this.playbackRaf.set(panelId, rafIdle);
         return;
       }
 

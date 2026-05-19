@@ -1032,6 +1032,49 @@
   color: var(--dial-text-primary);
 }
 
+/* Playback transport strip — sits below the panel content when there's history to replay */
+.dialkit-playback-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--dial-surface-subtle);
+}
+
+.dialkit-playback-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  color: var(--dial-text-label);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dialkit-playback-button:hover {
+  background: var(--dial-surface-hover);
+  color: var(--dial-text-primary);
+}
+
+.dialkit-playback-button-primary {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  background: var(--dial-surface);
+}
+
+.dialkit-playback-button-primary:hover {
+  background: var(--dial-surface-active);
+}
+
 .dialkit-preset-name {
   font-size: 13px;
   font-weight: 500;

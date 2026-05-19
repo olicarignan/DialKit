@@ -49,4 +49,6 @@ export type {
   PanelConfig,
   HistorySnapshot,
   PanelHistory,
+  PlaybackStatus,
+  PlaybackState,
 } from './store/DialStore';

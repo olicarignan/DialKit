@@ -117,6 +117,18 @@ export type PanelHistory = {
   future: HistorySnapshot[]; // states that were undone — redo restores from here
 };
 
+export type PlaybackStatus = 'idle' | 'playing' | 'paused' | 'ended';
+
+export type PlaybackState = {
+  status: PlaybackStatus;
+  playheadMs: number;       // current playhead in panel timeline (real ms timestamps)
+  speed: number;            // 0.25 – 4, 1 = real time
+  direction: 1 | -1;        // 1 = forward, -1 = reverse
+  loop: boolean;
+  rangeStart: number | null; // future A/B loop bounds (not used in phase 1)
+  rangeEnd: number | null;
+};
+
 const MAX_HISTORY = 100;
 const MAX_DISCARDED_BRANCHES = 5;
 
@@ -150,6 +162,12 @@ class DialStoreClass {
   private persistTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   // Captured at panel registration so resetPanel can restore even after edits drift baseValues
   private originalDefaults: Map<string, Record<string, DialValue>> = new Map();
+  // Playback engine state (transport status + timeline snapshot taken at play start)
+  private playback: Map<string, PlaybackState> = new Map();
+  private playbackTimeline: Map<string, HistorySnapshot[]> = new Map();
+  private playbackRaf: Map<string, number> = new Map();
+  private playbackStart: Map<string, { wallTime: number; playheadMs: number }> = new Map();
+  private playbackListeners: Map<string, Set<Listener>> = new Map();
 
   registerPanel(id: string, name: string, config: DialConfig, shortcuts?: Record<string, ShortcutConfig>): void {
     const controls = this.parseConfig(config, '', shortcuts);
@@ -263,6 +281,14 @@ class DialStoreClass {
     this.originalDefaults.delete(id);
     this.panelNames.delete(id);
     this.persistEnabled.delete(id);
+    // Stop any playback and tear down its state
+    const playRaf = this.playbackRaf.get(id);
+    if (playRaf !== undefined) cancelAnimationFrame(playRaf);
+    this.playbackRaf.delete(id);
+    this.playback.delete(id);
+    this.playbackTimeline.delete(id);
+    this.playbackStart.delete(id);
+    this.playbackListeners.delete(id);
     if (this.lastActivePanelId === id) {
       this.lastActivePanelId = null;
     }
@@ -282,6 +308,11 @@ class DialStoreClass {
   updateValue(panelId: string, path: string, value: DialValue): void {
     const panel = this.panels.get(panelId);
     if (!panel) return;
+
+    // Auto-pause any in-flight playback when the user starts editing
+    if (this.playback.get(panelId)?.status === 'playing') {
+      this.pausePlayback(panelId);
+    }
 
     this.lastActivePanelId = panelId;
 
@@ -1167,6 +1198,306 @@ class DialStoreClass {
     return merged;
   }
 
+  // ─── Playback ───────────────────────────────────────────────────────────────
+  // Replays a panel's history as a smooth animation by interpolating between snapshots.
+  // The timeline is captured at play start ([...past, currentValues]) and frozen for the
+  // duration of playback so it doesn't shift if the user (or undo) mutates history.
+
+  getPlaybackState(panelId: string): PlaybackState {
+    return this.playback.get(panelId) ?? defaultPlaybackState();
+  }
+
+  subscribePlayback(panelId: string, listener: Listener): () => void {
+    if (!this.playbackListeners.has(panelId)) {
+      this.playbackListeners.set(panelId, new Set());
+    }
+    this.playbackListeners.get(panelId)!.add(listener);
+    return () => {
+      this.playbackListeners.get(panelId)?.delete(listener);
+    };
+  }
+
+  startPlayback(panelId: string): void {
+    const panel = this.panels.get(panelId);
+    if (!panel) return;
+
+    const timeline = this.buildTimeline(panelId);
+    if (timeline.length < 2) return;
+
+    const existing = this.playback.get(panelId);
+    let playheadMs: number;
+
+    if (existing && existing.status === 'paused') {
+      // Resume from current position
+      playheadMs = existing.playheadMs;
+    } else if (existing && existing.status === 'ended' && !existing.loop) {
+      // Restart from the appropriate end
+      playheadMs = existing.direction === 1 ? timeline[0].timestamp : timeline[timeline.length - 1].timestamp;
+    } else {
+      // Fresh start
+      playheadMs = timeline[0].timestamp;
+    }
+
+    this.playbackTimeline.set(panelId, timeline);
+    this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs });
+
+    const next: PlaybackState = {
+      ...(existing ?? defaultPlaybackState()),
+      status: 'playing',
+      playheadMs,
+    };
+    this.playback.set(panelId, next);
+    this.notifyPlayback(panelId);
+    this.tickPlayback(panelId);
+  }
+
+  pausePlayback(panelId: string): void {
+    const state = this.playback.get(panelId);
+    if (!state || state.status !== 'playing') return;
+
+    // Compute the live playhead so resume picks up where we paused
+    const anchor = this.playbackStart.get(panelId);
+    const playheadMs = anchor
+      ? anchor.playheadMs + (performance.now() - anchor.wallTime) * state.speed * state.direction
+      : state.playheadMs;
+
+    const raf = this.playbackRaf.get(panelId);
+    if (raf !== undefined) cancelAnimationFrame(raf);
+    this.playbackRaf.delete(panelId);
+
+    this.playback.set(panelId, { ...state, status: 'paused', playheadMs });
+    this.notifyPlayback(panelId);
+  }
+
+  stopPlayback(panelId: string): void {
+    const raf = this.playbackRaf.get(panelId);
+    if (raf !== undefined) cancelAnimationFrame(raf);
+    this.playbackRaf.delete(panelId);
+
+    const existing = this.playback.get(panelId) ?? defaultPlaybackState();
+    this.playback.set(panelId, { ...existing, status: 'idle', playheadMs: 0 });
+    this.playbackTimeline.delete(panelId);
+    this.playbackStart.delete(panelId);
+    this.notifyPlayback(panelId);
+  }
+
+  // Jump to the first snapshot, ending playback. Restart UI affordance comes from 'ended' status.
+  jumpToStart(panelId: string): void {
+    const timeline = this.playbackTimeline.get(panelId) ?? this.buildTimeline(panelId);
+    if (timeline.length === 0) return;
+    this.seekTo(panelId, timeline[0].timestamp);
+  }
+
+  jumpToEnd(panelId: string): void {
+    const timeline = this.playbackTimeline.get(panelId) ?? this.buildTimeline(panelId);
+    if (timeline.length === 0) return;
+    this.seekTo(panelId, timeline[timeline.length - 1].timestamp);
+  }
+
+  stepBack(panelId: string): void {
+    this.stepBySnapshot(panelId, -1);
+  }
+
+  stepForward(panelId: string): void {
+    this.stepBySnapshot(panelId, 1);
+  }
+
+  setPlaybackSpeed(panelId: string, speed: number): void {
+    const clamped = Math.max(0.25, Math.min(4, speed));
+    const existing = this.playback.get(panelId) ?? defaultPlaybackState();
+    // If we're playing, re-anchor the wall clock so the new speed applies from "now"
+    if (existing.status === 'playing') {
+      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: existing.playheadMs });
+    }
+    this.playback.set(panelId, { ...existing, speed: clamped });
+    this.notifyPlayback(panelId);
+  }
+
+  setPlaybackDirection(panelId: string, direction: 1 | -1): void {
+    const existing = this.playback.get(panelId) ?? defaultPlaybackState();
+    if (existing.status === 'playing') {
+      this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs: existing.playheadMs });
+    }
+    // Reversing out of 'ended' should re-enable playing
+    const status = existing.status === 'ended' && existing.direction !== direction ? 'paused' : existing.status;
+    this.playback.set(panelId, { ...existing, direction, status });
+    this.notifyPlayback(panelId);
+  }
+
+  setPlaybackLoop(panelId: string, loop: boolean): void {
+    const existing = this.playback.get(panelId) ?? defaultPlaybackState();
+    this.playback.set(panelId, { ...existing, loop });
+    this.notifyPlayback(panelId);
+  }
+
+  // ─── Playback internals ─────────────────────────────────────────────────────
+
+  // Builds the chronological timeline used for playback. Includes the synthetic "now" snapshot
+  // so playback walks all the way to the present state.
+  private buildTimeline(panelId: string): HistorySnapshot[] {
+    const h = this.history.get(panelId);
+    const panel = this.panels.get(panelId);
+    if (!panel) return [];
+    const past = h?.past ?? [];
+    const nowTs = past.length > 0 ? Math.max(Date.now(), past[past.length - 1].timestamp + 1) : Date.now();
+    return [
+      ...past,
+      { values: { ...panel.values }, timestamp: nowTs },
+    ];
+  }
+
+  private notifyPlayback(panelId: string): void {
+    this.playbackListeners.get(panelId)?.forEach(fn => fn());
+  }
+
+  private tickPlayback(panelId: string): void {
+    const tick = () => {
+      const state = this.playback.get(panelId);
+      const timeline = this.playbackTimeline.get(panelId);
+      const anchor = this.playbackStart.get(panelId);
+      if (!state || state.status !== 'playing' || !timeline || timeline.length < 2 || !anchor) {
+        return;
+      }
+
+      const elapsed = (performance.now() - anchor.wallTime) * state.speed * state.direction;
+      let playheadMs = anchor.playheadMs + elapsed;
+
+      const first = timeline[0].timestamp;
+      const last = timeline[timeline.length - 1].timestamp;
+
+      // Boundary handling: loop or transition to ended state at extremes
+      if (state.direction === 1 && playheadMs >= last) {
+        if (state.loop) {
+          playheadMs = first;
+          this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs });
+        } else {
+          playheadMs = last;
+          this.applyTimelineAt(panelId, timeline, playheadMs);
+          this.playback.set(panelId, { ...state, playheadMs, status: 'ended' });
+          this.playbackRaf.delete(panelId);
+          this.notifyPlayback(panelId);
+          return;
+        }
+      } else if (state.direction === -1 && playheadMs <= first) {
+        if (state.loop) {
+          playheadMs = last;
+          this.playbackStart.set(panelId, { wallTime: performance.now(), playheadMs });
+        } else {
+          playheadMs = first;
+          this.applyTimelineAt(panelId, timeline, playheadMs);
+          this.playback.set(panelId, { ...state, playheadMs, status: 'ended' });
+          this.playbackRaf.delete(panelId);
+          this.notifyPlayback(panelId);
+          return;
+        }
+      }
+
+      this.applyTimelineAt(panelId, timeline, playheadMs);
+      // Don't write playheadMs back to the playback map per-tick — that would change the
+      // PlaybackState object reference every frame and confuse useSyncExternalStore. The
+      // accurate playhead is recomputed from the anchor + elapsed at pause/seek time.
+
+      const raf = requestAnimationFrame(tick);
+      this.playbackRaf.set(panelId, raf);
+    };
+
+    const raf = requestAnimationFrame(tick);
+    this.playbackRaf.set(panelId, raf);
+  }
+
+  private seekTo(panelId: string, playheadMs: number): void {
+    const timeline = this.playbackTimeline.get(panelId) ?? this.buildTimeline(panelId);
+    if (timeline.length === 0) return;
+    this.playbackTimeline.set(panelId, timeline);
+
+    // Pause any active playback before seeking
+    const raf = this.playbackRaf.get(panelId);
+    if (raf !== undefined) cancelAnimationFrame(raf);
+    this.playbackRaf.delete(panelId);
+
+    this.applyTimelineAt(panelId, timeline, playheadMs);
+
+    const existing = this.playback.get(panelId) ?? defaultPlaybackState();
+    this.playback.set(panelId, { ...existing, status: existing.status === 'playing' ? 'paused' : existing.status, playheadMs });
+    this.notifyPlayback(panelId);
+  }
+
+  private stepBySnapshot(panelId: string, dir: 1 | -1): void {
+    const timeline = this.playbackTimeline.get(panelId) ?? this.buildTimeline(panelId);
+    if (timeline.length < 2) return;
+    this.playbackTimeline.set(panelId, timeline);
+
+    const state = this.playback.get(panelId) ?? defaultPlaybackState();
+    const current = state.playheadMs;
+
+    // Find the next snapshot in the given direction
+    let target: number;
+    if (dir === 1) {
+      const next = timeline.find(s => s.timestamp > current + 0.5);
+      target = next ? next.timestamp : timeline[timeline.length - 1].timestamp;
+    } else {
+      const earlier = [...timeline].reverse().find(s => s.timestamp < current - 0.5);
+      target = earlier ? earlier.timestamp : timeline[0].timestamp;
+    }
+
+    this.seekTo(panelId, target);
+  }
+
+  // Interpolates timeline values at the given playhead position and dispatches them silently
+  // (i.e. without writing to history or persistence).
+  private applyTimelineAt(panelId: string, timeline: HistorySnapshot[], playheadMs: number): void {
+    const panel = this.panels.get(panelId);
+    if (!panel) return;
+
+    // Locate the two surrounding snapshots
+    let aIdx = 0;
+    for (let i = 0; i < timeline.length; i++) {
+      if (timeline[i].timestamp <= playheadMs) aIdx = i;
+      else break;
+    }
+    const a = timeline[aIdx];
+    const b = timeline[aIdx + 1] ?? a;
+
+    const span = b.timestamp - a.timestamp;
+    const t = span > 0 ? Math.max(0, Math.min(1, (playheadMs - a.timestamp) / span)) : 0;
+
+    const next: Record<string, DialValue> = {};
+    const keys = new Set<string>([...Object.keys(a.values), ...Object.keys(b.values)]);
+    for (const key of keys) {
+      next[key] = interpolateValue(a.values[key], b.values[key], t);
+    }
+
+    panel.values = next;
+    this.snapshots.set(panelId, { ...next });
+    this.notify(panelId);
+  }
+
+}
+
+function defaultPlaybackState(): PlaybackState {
+  return {
+    status: 'idle',
+    playheadMs: 0,
+    speed: 1,
+    direction: 1,
+    loop: false,
+    rangeStart: null,
+    rangeEnd: null,
+  };
+}
+
+// Linear interpolation between two snapshot values. Numbers lerp; non-numerics step-change
+// at the boundary (use a until t reaches 1, then use b).
+function interpolateValue(a: DialValue | undefined, b: DialValue | undefined, t: number): DialValue {
+  // Snap to b at the end of the segment
+  if (t >= 1) return (b ?? a) as DialValue;
+  if (a === undefined) return (b ?? a) as DialValue;
+  if (b === undefined) return a;
+
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a + (b - a) * t;
+  }
+  return a; // strings, booleans, and config objects step-change at b's boundary
 }
 
 // Singleton instance

@@ -14,6 +14,7 @@ import { SelectControl } from './SelectControl';
 import { ColorControl } from './ColorControl';
 import { PresetManager } from './PresetManager';
 import { CopyMenu } from './CopyMenu';
+import { PlaybackBar } from './PlaybackBar';
 
 interface PanelProps {
   panel: PanelConfig;
@@ -209,6 +210,7 @@ export function Panel({ panel, defaultOpen = true, inline = false }: PanelProps)
     <div className="dialkit-panel-wrapper">
       <Folder title={panel.name} defaultOpen={defaultOpen} isRoot={true} inline={inline} onOpenChange={setIsPanelOpen} toolbar={toolbar}>
         {renderControls()}
+        {isPanelOpen && <PlaybackBar panelId={panel.id} />}
       </Folder>
     </div>
   );

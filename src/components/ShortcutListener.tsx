@@ -51,6 +51,20 @@ export function ShortcutListener({ children }: { children: React.ReactNode }) {
 
       const key = e.key.toLowerCase();
 
+      // ── Undo / Redo: ⌘Z / ⌘⇧Z (or Ctrl on non-Mac), ⌘Y also accepted for redo ──
+      const cmdOrCtrl = e.metaKey || e.ctrlKey;
+      if (cmdOrCtrl && !e.altKey && (key === 'z' || key === 'y')) {
+        const panelId = DialStore.getLastActivePanelId();
+        if (!panelId) return;
+
+        const isRedo = key === 'y' || (key === 'z' && e.shiftKey);
+        const didChange = isRedo ? DialStore.redo(panelId) : DialStore.undo(panelId);
+        if (didChange) {
+          e.preventDefault();
+        }
+        return;
+      }
+
       // Arrow keys adjust the active shortcut's slider
       if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
         if (activeKeysRef.current.size > 0) {

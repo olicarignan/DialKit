@@ -4,6 +4,11 @@ import { DialStore, DialConfig, DialValue, ResolvedValues, SpringConfig, EasingC
 export interface UseDialOptions {
   onAction?: (action: string) => void;
   shortcuts?: Record<string, ShortcutConfig>;
+  /**
+   * Persist this panel's values to localStorage and rehydrate on mount.
+   * Default: true. Pass `false` to opt out for ephemeral panels.
+   */
+  persistence?: boolean;
 }
 
 export function useDialKit<T extends DialConfig>(
@@ -22,11 +27,14 @@ export function useDialKit<T extends DialConfig>(
   shortcutsRef.current = options?.shortcuts;
   const serializedShortcuts = JSON.stringify(options?.shortcuts);
 
-  // Register panel on mount
+  // Register panel on mount. Apply persistence preference BEFORE registerPanel
+  // so the initial hydration respects the opt-out.
+  const persistence = options?.persistence ?? true;
   useEffect(() => {
+    DialStore.setPersistenceEnabled(panelId, persistence);
     DialStore.registerPanel(panelId, name, configRef.current, shortcutsRef.current);
     return () => DialStore.unregisterPanel(panelId);
-  }, [panelId, name]);
+  }, [panelId, name, persistence]);
 
   // Update panel when config structure or shortcuts change
   const mountedRef = useRef(false);

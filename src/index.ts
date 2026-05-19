@@ -2,6 +2,10 @@
 export { useDialKit } from './hooks/useDialKit';
 export type { UseDialOptions } from './hooks/useDialKit';
 
+// History hook — undo/redo + capability flags for a panel
+export { useDialKitHistory } from './hooks/useDialKitHistory';
+export type { DialKitHistoryAPI } from './hooks/useDialKitHistory';
+
 // Root component (user mounts once)
 export { DialRoot } from './components/DialRoot';
 export type { DialPosition, DialMode, DialTheme } from './components/DialRoot';
@@ -40,4 +44,6 @@ export type {
   ResolvedValues,
   ControlMeta,
   PanelConfig,
+  HistorySnapshot,
+  PanelHistory,
 } from './store/DialStore';

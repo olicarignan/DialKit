@@ -7,6 +7,10 @@ interface SliderProps {
   label: string;
   value: number;
   onChange: (value: number) => void;
+  /** Called at pointerDown — use to begin a history group for drag-as-one-undo-step. */
+  onInteractStart?: () => void;
+  /** Called at pointerUp — pairs with onInteractStart to commit the group. */
+  onInteractEnd?: () => void;
   min?: number;
   max?: number;
   step?: number;
@@ -24,6 +28,8 @@ export function Slider({
   label,
   value,
   onChange,
+  onInteractStart,
+  onInteractEnd,
   min = 0,
   max = 1,
   step = 0.01,
@@ -124,6 +130,8 @@ export function Slider({
       isClickRef.current = true;
       setIsInteracting(true);
 
+      onInteractStart?.();
+
       // Capture wrapper rect at pointer down for stable reference
       if (wrapperRef.current) {
         wrapperRectRef.current = wrapperRef.current.getBoundingClientRect();
@@ -131,7 +139,7 @@ export function Slider({
         scaleRef.current = wrapperRectRef.current.width / nativeWidth;
       }
     },
-    [showInput]
+    [showInput, onInteractStart]
   );
 
   const handlePointerMove = useCallback(
@@ -221,6 +229,8 @@ export function Slider({
       setIsInteracting(false);
       setIsDragging(false);
       pointerDownPos.current = null;
+
+      onInteractEnd?.();
     },
     [
       isInteracting,
@@ -231,6 +241,7 @@ export function Slider({
       max,
       fillPercent,
       rubberStretchPx,
+      onInteractEnd,
     ]
   );
 

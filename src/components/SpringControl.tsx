@@ -59,6 +59,10 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
     }
   };
 
+  // Group all updates from a single slider drag into one undo step
+  const interactStart = () => DialStore.beginGroup(panelId, path);
+  const interactEnd = () => DialStore.endGroup(panelId);
+
   return (
     <Folder title={label} defaultOpen={true}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -82,6 +86,8 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
               label="Duration"
               value={spring.visualDuration ?? 0.3}
               onChange={(v) => handleUpdate('visualDuration', v)}
+              onInteractStart={interactStart}
+              onInteractEnd={interactEnd}
               min={0.1}
               max={1}
               step={0.05}
@@ -91,6 +97,8 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
               label="Bounce"
               value={spring.bounce ?? 0.2}
               onChange={(v) => handleUpdate('bounce', v)}
+              onInteractStart={interactStart}
+              onInteractEnd={interactEnd}
               min={0}
               max={1}
               step={0.05}
@@ -102,6 +110,8 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
               label="Stiffness"
               value={spring.stiffness ?? 400}
               onChange={(v) => handleUpdate('stiffness', v)}
+              onInteractStart={interactStart}
+              onInteractEnd={interactEnd}
               min={1}
               max={1000}
               step={10}
@@ -110,6 +120,8 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
               label="Damping"
               value={spring.damping ?? 17}
               onChange={(v) => handleUpdate('damping', v)}
+              onInteractStart={interactStart}
+              onInteractEnd={interactEnd}
               min={1}
               max={100}
               step={1}
@@ -118,6 +130,8 @@ export function SpringControl({ panelId, path, label, spring, onChange }: Spring
               label="Mass"
               value={spring.mass ?? 1}
               onChange={(v) => handleUpdate('mass', v)}
+              onInteractStart={interactStart}
+              onInteractEnd={interactEnd}
               min={0.1}
               max={10}
               step={0.1}

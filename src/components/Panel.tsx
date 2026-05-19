@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DialStore, ControlMeta, PanelConfig, SpringConfig, TransitionConfig } from '../store/DialStore';
 import { ShortcutContext } from './ShortcutListener';
 import { ShortcutsMenu } from './ShortcutsMenu';
-import { ICON_CLIPBOARD, ICON_CHECK, ICON_ADD_PRESET } from '../icons';
+import { ICON_CLIPBOARD, ICON_CHECK, ICON_ADD_PRESET, ICON_RESET } from '../icons';
 import { Folder } from './Folder';
 import { Slider } from './Slider';
 import { Toggle } from './Toggle';
@@ -41,6 +41,10 @@ export function Panel({ panel, defaultOpen = true, inline = false }: PanelProps)
     DialStore.savePreset(panel.id, `Version ${nextNum}`);
   };
 
+  const handleReset = () => {
+    DialStore.resetPanel(panel.id);
+  };
+
   const handleCopy = () => {
     const jsonStr = JSON.stringify(values, null, 2);
 
@@ -68,6 +72,8 @@ Apply these values as the new defaults in the useDialKit call.`;
             label={control.label}
             value={value as number}
             onChange={(v) => DialStore.updateValue(panel.id, control.path, v)}
+            onInteractStart={() => DialStore.beginGroup(panel.id, control.path)}
+            onInteractEnd={() => DialStore.endGroup(panel.id)}
             min={control.min}
             max={control.max}
             step={control.step}
@@ -195,6 +201,20 @@ Apply these values as the new defaults in the useDialKit call.`;
         activePresetId={activePresetId}
         onAdd={handleAddPreset}
       />
+
+      <motion.button
+        className="dialkit-toolbar-add"
+        onClick={handleReset}
+        title="Reset to defaults"
+        whileTap={{ scale: 0.9 }}
+        transition={{ type: 'spring', visualDuration: 0.15, bounce: 0.3 }}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width={16} height={16} style={{ color: 'var(--dial-text-label)' }}>
+          {ICON_RESET.map((d, i) => (
+            <path key={i} d={d} />
+          ))}
+        </svg>
+      </motion.button>
 
       <motion.button
         className="dialkit-toolbar-add"

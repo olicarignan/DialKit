@@ -6,6 +6,9 @@ export type { UseDialOptions } from './hooks/useDialKit';
 export { useDialKitHistory } from './hooks/useDialKitHistory';
 export type { DialKitHistoryAPI } from './hooks/useDialKitHistory';
 
+// Code export — serialize a panel's current state to a config literal, JSON, or CSS variables
+export { exportConfig, exportJSON, exportCSS } from './export';
+
 // Root component (user mounts once)
 export { DialRoot } from './components/DialRoot';
 export type { DialPosition, DialMode, DialTheme } from './components/DialRoot';

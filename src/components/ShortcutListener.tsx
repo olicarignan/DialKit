@@ -65,16 +65,6 @@ export function ShortcutListener({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // ── Space: toggle play/pause for the active panel when any panel is expanded ──
-      if ((key === ' ' || e.code === 'Space') && !cmdOrCtrl && !e.altKey && !e.metaKey) {
-        if (!DialStore.isAnyPanelExpanded()) return;
-        const panelId = DialStore.getLastActivePanelId();
-        if (!panelId) return;
-        e.preventDefault();
-        DialStore.togglePlaying(panelId);
-        return;
-      }
-
       // Arrow keys adjust the active shortcut's slider
       if (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown') {
         if (activeKeysRef.current.size > 0) {

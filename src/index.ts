@@ -6,10 +6,6 @@ export type { UseDialOptions } from './hooks/useDialKit';
 export { useDialKitHistory } from './hooks/useDialKitHistory';
 export type { DialKitHistoryAPI } from './hooks/useDialKitHistory';
 
-// Playback hook — transport state (isPlaying / speed / progress) the host wires into its animations
-export { useDialKitPlayback } from './hooks/useDialKitPlayback';
-export type { DialKitPlaybackAPI } from './hooks/useDialKitPlayback';
-
 // Code export — serialize a panel's current state to a config literal, JSON, or CSS variables
 export { exportConfig, exportJSON, exportCSS } from './export';
 
@@ -53,5 +49,4 @@ export type {
   PanelConfig,
   HistorySnapshot,
   PanelHistory,
-  PanelPlayback,
 } from './store/DialStore';

@@ -117,18 +117,6 @@ export type PanelHistory = {
   future: HistorySnapshot[]; // states that were undone — redo restores from here
 };
 
-// Transport state per panel. The host app drives its own animations and reads these signals
-// to decide how to render. DialKit just maintains the control surface.
-//   isPlaying: true = host runs normally; false = host should freeze its animation
-//   speed:    0–2 multiplier the host applies to its animation rate (default 1)
-//   progress: 0–1 scrub position; host writes this as its animation advances and reads it
-//             when the user drags the scrubber
-export type PanelPlayback = {
-  isPlaying: boolean;
-  speed: number;
-  progress: number;
-};
-
 const MAX_HISTORY = 100;
 const MAX_DISCARDED_BRANCHES = 5;
 
@@ -142,7 +130,6 @@ const PERSIST_KEY_VERSION = 'v1';
 // returning a fresh fallback on every read trips the infinite-loop detection).
 const EMPTY_VALUES: Record<string, DialValue> = Object.freeze({});
 const EMPTY_HISTORY: PanelHistory = Object.freeze({ past: [], future: [] }) as PanelHistory;
-const DEFAULT_PLAYBACK: PanelPlayback = Object.freeze({ isPlaying: true, speed: 1, progress: 0 }) as PanelPlayback;
 
 class DialStoreClass {
   private panels: Map<string, PanelConfig> = new Map();
@@ -157,21 +144,14 @@ class DialStoreClass {
   private discardedBranches: Map<string, HistorySnapshot[][]> = new Map();
   private activeGroups: Map<string, HistorySnapshot> = new Map();
   private historyListeners: Map<string, Set<Listener>> = new Map();
-  // Most recently interacted panel — used to scope keyboard undo/redo and the playback dock
+  // Most recently interacted panel — used to scope keyboard undo/redo
   private lastActivePanelId: string | null = null;
-  private lastActiveListeners: Set<Listener> = new Set();
   // Persistence: per-panel storage key + enabled flag + debounced flush timer
   private panelNames: Map<string, string> = new Map();
   private persistEnabled: Map<string, boolean> = new Map();
   private persistTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   // Captured at panel registration so resetPanel can restore even after edits drift baseValues
   private originalDefaults: Map<string, Record<string, DialValue>> = new Map();
-  // Playback transport state (isPlaying / speed / progress) per panel
-  private playback: Map<string, PanelPlayback> = new Map();
-  private playbackListeners: Map<string, Set<Listener>> = new Map();
-  // Which panels are currently expanded — used by the floating playback dock to know whether to show
-  private expandedPanels: Set<string> = new Set();
-  private expansionListeners: Set<Listener> = new Set();
 
   registerPanel(id: string, name: string, config: DialConfig, shortcuts?: Record<string, ShortcutConfig>): void {
     const controls = this.parseConfig(config, '', shortcuts);
@@ -285,11 +265,6 @@ class DialStoreClass {
     this.originalDefaults.delete(id);
     this.panelNames.delete(id);
     this.persistEnabled.delete(id);
-    this.playback.delete(id);
-    this.playbackListeners.delete(id);
-    if (this.expandedPanels.delete(id)) {
-      this.notifyExpansion();
-    }
     if (this.lastActivePanelId === id) {
       this.lastActivePanelId = null;
     }
@@ -306,33 +281,11 @@ class DialStoreClass {
     return first.done ? null : first.value;
   }
 
-  // Look up a panel's runtime id by the name the host passed to useDialKit.
-  // Used by useDialKitPlayback so the host can refer to its panel by name.
-  getPanelIdByName(name: string): string | null {
-    for (const [id, panelName] of this.panelNames) {
-      if (panelName === name) return id;
-    }
-    return null;
-  }
-
-  subscribeLastActive(listener: Listener): () => void {
-    this.lastActiveListeners.add(listener);
-    return () => {
-      this.lastActiveListeners.delete(listener);
-    };
-  }
-
-  private markPanelActive(panelId: string): void {
-    if (this.lastActivePanelId === panelId) return;
-    this.lastActivePanelId = panelId;
-    this.lastActiveListeners.forEach(fn => fn());
-  }
-
   updateValue(panelId: string, path: string, value: DialValue): void {
     const panel = this.panels.get(panelId);
     if (!panel) return;
 
-    this.markPanelActive(panelId);
+    this.lastActivePanelId = panelId;
 
     const previousValue = panel.values[path];
     const isAtomic = !this.activeGroups.has(panelId);
@@ -381,7 +334,7 @@ class DialStoreClass {
     const panel = this.panels.get(panelId);
     if (!panel) return;
 
-    this.markPanelActive(panelId);
+    this.lastActivePanelId = panelId;
 
     const modeKey = `${path}.__mode`;
     const previousMode = panel.values[modeKey];
@@ -456,12 +409,6 @@ class DialStoreClass {
   }
 
   triggerAction(panelId: string, path: string): void {
-    // Any action click implicitly "advances" — resume playback if it was paused
-    const current = this.playback.get(panelId);
-    if (current && !current.isPlaying) {
-      this.playback.set(panelId, { ...current, isPlaying: true });
-      this.notifyPlayback(panelId);
-    }
     this.actionListeners.get(panelId)?.forEach(fn => fn(path));
   }
 
@@ -909,7 +856,7 @@ class DialStoreClass {
     if (!panel) return;
     if (this.activeGroups.has(panelId)) return; // nested begin is a no-op
 
-    this.markPanelActive(panelId);
+    this.lastActivePanelId = panelId;
 
     this.activeGroups.set(panelId, {
       values: { ...panel.values },
@@ -1225,81 +1172,6 @@ class DialStoreClass {
     }
 
     return merged;
-  }
-
-  // ─── Playback (transport state for host-driven animations) ──────────────────
-  // DialKit doesn't run any animation itself — the host app does, and reads these signals
-  // to decide how to behave. The dock UI just exposes setters.
-
-  getPlayback(panelId: string): PanelPlayback {
-    return this.playback.get(panelId) ?? DEFAULT_PLAYBACK;
-  }
-
-  subscribePlayback(panelId: string, listener: Listener): () => void {
-    if (!this.playbackListeners.has(panelId)) {
-      this.playbackListeners.set(panelId, new Set());
-    }
-    this.playbackListeners.get(panelId)!.add(listener);
-    return () => {
-      this.playbackListeners.get(panelId)?.delete(listener);
-    };
-  }
-
-  setPlaying(panelId: string, isPlaying: boolean): void {
-    const current = this.playback.get(panelId) ?? { ...DEFAULT_PLAYBACK };
-    if (current.isPlaying === isPlaying) return;
-    this.playback.set(panelId, { ...current, isPlaying });
-    this.notifyPlayback(panelId);
-  }
-
-  togglePlaying(panelId: string): void {
-    const current = this.playback.get(panelId) ?? { ...DEFAULT_PLAYBACK };
-    this.playback.set(panelId, { ...current, isPlaying: !current.isPlaying });
-    this.notifyPlayback(panelId);
-  }
-
-  setPlaybackSpeed(panelId: string, speed: number): void {
-    const clamped = Math.max(0, Math.min(2, speed));
-    const current = this.playback.get(panelId) ?? { ...DEFAULT_PLAYBACK };
-    if (current.speed === clamped) return;
-    this.playback.set(panelId, { ...current, speed: clamped });
-    this.notifyPlayback(panelId);
-  }
-
-  setPlaybackProgress(panelId: string, progress: number): void {
-    const clamped = Math.max(0, Math.min(1, progress));
-    const current = this.playback.get(panelId) ?? { ...DEFAULT_PLAYBACK };
-    if (current.progress === clamped) return;
-    this.playback.set(panelId, { ...current, progress: clamped });
-    this.notifyPlayback(panelId);
-  }
-
-  private notifyPlayback(panelId: string): void {
-    this.playbackListeners.get(panelId)?.forEach(fn => fn());
-  }
-
-  // ─── Expansion (tracks which panels are currently open) ─────────────────────
-
-  setPanelExpanded(panelId: string, expanded: boolean): void {
-    const before = this.expandedPanels.has(panelId);
-    if (expanded) this.expandedPanels.add(panelId);
-    else this.expandedPanels.delete(panelId);
-    if (before !== expanded) this.notifyExpansion();
-  }
-
-  isAnyPanelExpanded(): boolean {
-    return this.expandedPanels.size > 0;
-  }
-
-  subscribeExpansion(listener: Listener): () => void {
-    this.expansionListeners.add(listener);
-    return () => {
-      this.expansionListeners.delete(listener);
-    };
-  }
-
-  private notifyExpansion(): void {
-    this.expansionListeners.forEach(fn => fn());
   }
 
 }

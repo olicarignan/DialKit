@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useSyncExternalStore } from 'react';
+import { useState, useContext, useSyncExternalStore } from 'react';
 import { motion } from 'motion/react';
 import { DialStore, ControlMeta, PanelConfig, SpringConfig, TransitionConfig } from '../store/DialStore';
 import { ShortcutContext } from './ShortcutListener';
@@ -25,13 +25,6 @@ export function Panel({ panel, defaultOpen = true, inline = false }: PanelProps)
   const [isPanelOpen, setIsPanelOpen] = useState(defaultOpen);
   const shortcutCtx = useContext(ShortcutContext);
   const hasShortcuts = Object.keys(panel.shortcuts).length > 0;
-
-  // Inline panels are considered always "expanded" (they have no collapsed bubble state);
-  // otherwise mirror the Folder's open state so the floating dock knows when to show.
-  useEffect(() => {
-    DialStore.setPanelExpanded(panel.id, inline || isPanelOpen);
-    return () => DialStore.setPanelExpanded(panel.id, false);
-  }, [panel.id, isPanelOpen, inline]);
 
   // Subscribe to panel value changes
   const values = useSyncExternalStore(

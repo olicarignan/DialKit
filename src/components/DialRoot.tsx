@@ -109,11 +109,21 @@ export function DialRoot({ position = 'top-right', defaultOpen = true, mode = 'p
   }, [inline, activePosition]);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // Only drag the collapsed bubble
     const inner = panelRef.current?.querySelector('.dialkit-panel-inner');
-    if (!inner || inner.getAttribute('data-collapsed') !== 'true') return;
+    if (!inner) return;
 
-    // Cancel any in-flight snap animation if the user grabs the bubble again
+    const collapsed = inner.getAttribute('data-collapsed') === 'true';
+    const target = e.target as HTMLElement;
+
+    // When expanded, only the panel header acts as a drag handle (and skip clicks on
+    // interactive controls inside the header so toolbar buttons keep working normally).
+    if (!collapsed) {
+      const header = panelRef.current?.querySelector('.dialkit-panel-header');
+      if (!header || !header.contains(target)) return;
+      if (target.closest('button, input, a, [role="button"]')) return;
+    }
+
+    // Cancel any in-flight snap animation if the user grabs the panel again
     if (snapRafRef.current !== null) {
       cancelAnimationFrame(snapRafRef.current);
       snapRafRef.current = null;
@@ -151,7 +161,7 @@ export function DialRoot({ position = 'top-right', defaultOpen = true, mode = 'p
     draggingRef.current = false;
     dragStartRef.current = null;
 
-    // If we actually dragged, prevent the click from opening the panel and snap to nearest corner
+    // If we actually dragged, prevent the click from toggling the panel and snap to nearest corner
     if (didDragRef.current) {
       e.stopPropagation();
       const inner = panelRef.current?.querySelector('.dialkit-panel-inner');
@@ -160,17 +170,26 @@ export function DialRoot({ position = 'top-right', defaultOpen = true, mode = 'p
         inner.addEventListener('click', blocker, { capture: true, once: true });
       }
 
-      if (panelRef.current) {
+      if (panelRef.current && inner) {
+        const collapsed = inner.getAttribute('data-collapsed') === 'true';
         const rect = panelRef.current.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
         const horizontal = centerX < window.innerWidth / 2 ? 'left' : 'right';
-        const vertical = centerY < window.innerHeight / 2 ? 'top' : 'bottom';
-        const corner = `${vertical}-${horizontal}` as DialPosition;
+
+        // Expanded panel grows downward, so always snap to a top corner.
+        // Collapsed bubble can land in any of the four corners.
+        let corner: DialPosition;
+        if (collapsed) {
+          const centerY = rect.top + rect.height / 2;
+          const vertical = centerY < window.innerHeight / 2 ? 'top' : 'bottom';
+          corner = `${vertical}-${horizontal}` as DialPosition;
+        } else {
+          corner = `top-${horizontal}` as DialPosition;
+        }
 
         const inset = 16;
         const targetX = horizontal === 'left' ? inset : window.innerWidth - rect.width - inset;
-        const targetY = vertical === 'top' ? inset : window.innerHeight - rect.height - inset;
+        const targetY = corner.startsWith('top') ? inset : window.innerHeight - rect.height - inset;
         const startX = rect.left;
         const startY = rect.top;
         const duration = 360;
@@ -182,16 +201,20 @@ export function DialRoot({ position = 'top-right', defaultOpen = true, mode = 'p
 
         const tick = (now: number) => {
           const t = Math.min(1, (now - startTime) / duration);
-          const e = ease(t);
+          const eased = ease(t);
           setDragOffset({
-            x: startX + (targetX - startX) * e,
-            y: startY + (targetY - startY) * e,
+            x: startX + (targetX - startX) * eased,
+            y: startY + (targetY - startY) * eased,
           });
           if (t < 1) {
             snapRafRef.current = requestAnimationFrame(tick);
           } else {
             snapRafRef.current = null;
             setActivePosition(corner);
+            // If we moved the expanded panel, remember the new spot so collapsing returns here.
+            if (!collapsed) {
+              savedCorner.current = corner;
+            }
             setDragOffset(null);
           }
         };

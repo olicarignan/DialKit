@@ -1,9 +1,9 @@
 import { useState, useContext, useSyncExternalStore } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { DialStore, ControlMeta, PanelConfig, SpringConfig, TransitionConfig } from '../store/DialStore';
 import { ShortcutContext } from './ShortcutListener';
 import { ShortcutsMenu } from './ShortcutsMenu';
-import { ICON_CLIPBOARD, ICON_CHECK, ICON_ADD_PRESET } from '../icons';
+import { ICON_ADD_PRESET, ICON_RESET } from '../icons';
 import { Folder } from './Folder';
 import { Slider } from './Slider';
 import { Toggle } from './Toggle';
@@ -13,6 +13,7 @@ import { TextControl } from './TextControl';
 import { SelectControl } from './SelectControl';
 import { ColorControl } from './ColorControl';
 import { PresetManager } from './PresetManager';
+import { CopyMenu } from './CopyMenu';
 
 interface PanelProps {
   panel: PanelConfig;
@@ -21,7 +22,6 @@ interface PanelProps {
 }
 
 export function Panel({ panel, defaultOpen = true, inline = false }: PanelProps) {
-  const [copied, setCopied] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(defaultOpen);
   const shortcutCtx = useContext(ShortcutContext);
   const hasShortcuts = Object.keys(panel.shortcuts).length > 0;
@@ -41,20 +41,8 @@ export function Panel({ panel, defaultOpen = true, inline = false }: PanelProps)
     DialStore.savePreset(panel.id, `Version ${nextNum}`);
   };
 
-  const handleCopy = () => {
-    const jsonStr = JSON.stringify(values, null, 2);
-
-    const instruction = `Update the useDialKit configuration for "${panel.name}" with these values:
-
-\`\`\`json
-${jsonStr}
-\`\`\`
-
-Apply these values as the new defaults in the useDialKit call.`;
-
-    navigator.clipboard.writeText(instruction);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleReset = () => {
+    DialStore.resetPanel(panel.id);
   };
 
   const renderControl = (control: ControlMeta) => {
@@ -68,6 +56,8 @@ Apply these values as the new defaults in the useDialKit call.`;
             label={control.label}
             value={value as number}
             onChange={(v) => DialStore.updateValue(panel.id, control.path, v)}
+            onInteractStart={() => DialStore.beginGroup(panel.id, control.path)}
+            onInteractEnd={() => DialStore.endGroup(panel.id)}
             min={control.min}
             max={control.max}
             step={control.step}
@@ -198,49 +188,19 @@ Apply these values as the new defaults in the useDialKit call.`;
 
       <motion.button
         className="dialkit-toolbar-add"
-        onClick={handleCopy}
-        title="Copy parameters"
+        onClick={handleReset}
+        title="Reset to defaults"
         whileTap={{ scale: 0.9 }}
         transition={{ type: 'spring', visualDuration: 0.15, bounce: 0.3 }}
       >
-        <span style={{ position: 'relative', width: 16, height: 16 }}>
-          <AnimatePresence initial={false} mode="wait">
-            {copied ? (
-              <motion.svg
-                key="check"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ position: 'absolute', inset: 0, width: 16, height: 16, color: 'var(--dial-text-label)' }}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.8, opacity: 0 }}
-                transition={{ duration: 0.08 }}
-              >
-                <path d={ICON_CHECK} />
-              </motion.svg>
-            ) : (
-              <motion.svg
-                key="clipboard"
-                viewBox="0 0 24 24"
-                fill="none"
-                style={{ position: 'absolute', inset: 0, width: 16, height: 16, color: 'var(--dial-text-label)' }}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.8, opacity: 0 }}
-                transition={{ duration: 0.08 }}
-              >
-                <path d={ICON_CLIPBOARD.board} stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
-                <path d={ICON_CLIPBOARD.sparkle} fill="currentColor"/>
-                <path d={ICON_CLIPBOARD.body} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </motion.svg>
-            )}
-          </AnimatePresence>
-        </span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width={16} height={16} style={{ color: 'var(--dial-text-label)' }}>
+          {ICON_RESET.map((d, i) => (
+            <path key={i} d={d} />
+          ))}
+        </svg>
       </motion.button>
+
+      <CopyMenu panelId={panel.id} />
 
     </>
   );

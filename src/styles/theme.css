@@ -166,6 +166,11 @@
   padding-bottom: 6px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--dial-surface-subtle);
+  cursor: grab;
+}
+
+.dialkit-panel-header:active {
+  cursor: grabbing;
 }
 
 .dialkit-folder-header {
@@ -993,6 +998,41 @@
   background: var(--dial-surface-active);
 }
 
+/* Copy menu — mirrors the preset dropdown geometry */
+.dialkit-copy-dropdown {
+  width: max-content;
+  background: var(--dial-dropdown-bg);
+  border: 1px solid var(--dial-border);
+  border-radius: 12px;
+  padding: 4px;
+  z-index: 10000;
+  box-shadow: var(--dial-shadow-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dialkit-copy-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--dial-text-label);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dialkit-copy-item:hover {
+  background: var(--dial-surface-hover);
+  color: var(--dial-text-primary);
+}
+
+
 .dialkit-preset-name {
   font-size: 13px;
   font-weight: 500;
@@ -1353,7 +1393,8 @@
 /* Dropdowns: solid surface using the theme's dropdown color, no border, layered shadow */
 .dialkit-root[data-theme="frosted"] .dialkit-select-dropdown,
 .dialkit-root[data-theme="frosted"] .dialkit-preset-dropdown,
-.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-dropdown {
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-dropdown,
+.dialkit-root[data-theme="frosted"] .dialkit-copy-dropdown {
   border: none;
   background: var(--dial-dropdown-bg);
   backdrop-filter: none;
@@ -1364,7 +1405,8 @@
 /* Breathing room between dropdown items */
 .dialkit-root[data-theme="frosted"] .dialkit-select-option + .dialkit-select-option,
 .dialkit-root[data-theme="frosted"] .dialkit-preset-item + .dialkit-preset-item,
-.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row + .dialkit-shortcuts-row {
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row + .dialkit-shortcuts-row,
+.dialkit-root[data-theme="frosted"] .dialkit-copy-item + .dialkit-copy-item {
   margin-top: 4px;
 }
 
@@ -1376,7 +1418,8 @@
 /* Inner items use the inset radius so corners are concentric with their dropdown */
 .dialkit-root[data-theme="frosted"] .dialkit-select-option,
 .dialkit-root[data-theme="frosted"] .dialkit-preset-item,
-.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row {
+.dialkit-root[data-theme="frosted"] .dialkit-shortcuts-row,
+.dialkit-root[data-theme="frosted"] .dialkit-copy-item {
   border-radius: var(--dial-radius-inset);
 }
 
@@ -1511,7 +1554,8 @@
 
 /* Light frosted dropdowns: panel surfaces use white tints which disappear on the solid white dropdown — use black tints for hover/active contrast */
 .dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-select-option:hover,
-.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-preset-item:hover {
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-preset-item:hover,
+.dialkit-root[data-theme="frosted"][data-frosted-mode="light"] .dialkit-copy-item:hover {
   background: rgba(0, 0, 0, 0.07);
 }
 

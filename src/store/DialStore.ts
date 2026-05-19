@@ -104,8 +104,32 @@ export type Preset = {
   values: Record<string, DialValue>;
 };
 
-// Stable empty object for unregistered panels (React 19 useSyncExternalStore requirement)
+// A point-in-time capture of a panel's values plus when (and optionally why) it was captured.
+// Used for undo/redo, future timeline scrubbing, and animation playback.
+export type HistorySnapshot = {
+  values: Record<string, DialValue>;
+  timestamp: number;
+  label?: string;
+};
+
+export type PanelHistory = {
+  past: HistorySnapshot[];   // states older than current — undo restores from here
+  future: HistorySnapshot[]; // states that were undone — redo restores from here
+};
+
+const MAX_HISTORY = 100;
+const MAX_DISCARDED_BRANCHES = 5;
+
+// localStorage debounce window — coalesces rapid changes (drags) into one write
+const PERSIST_DEBOUNCE_MS = 300;
+// Bump the suffix when the persisted schema needs to be invalidated
+const PERSIST_KEY_PREFIX = 'dialkit';
+const PERSIST_KEY_VERSION = 'v1';
+
+// Stable empty objects for unregistered panels (React 19 useSyncExternalStore requirement —
+// returning a fresh fallback on every read trips the infinite-loop detection).
 const EMPTY_VALUES: Record<string, DialValue> = Object.freeze({});
+const EMPTY_HISTORY: PanelHistory = Object.freeze({ past: [], future: [] }) as PanelHistory;
 
 class DialStoreClass {
   private panels: Map<string, PanelConfig> = new Map();
@@ -116,13 +140,37 @@ class DialStoreClass {
   private presets: Map<string, Preset[]> = new Map();
   private activePreset: Map<string, string | null> = new Map();
   private baseValues: Map<string, Record<string, DialValue>> = new Map();
+  private history: Map<string, PanelHistory> = new Map();
+  private discardedBranches: Map<string, HistorySnapshot[][]> = new Map();
+  private activeGroups: Map<string, HistorySnapshot> = new Map();
+  private historyListeners: Map<string, Set<Listener>> = new Map();
+  // Most recently interacted panel — used to scope keyboard undo/redo
+  private lastActivePanelId: string | null = null;
+  // Persistence: per-panel storage key + enabled flag + debounced flush timer
+  private panelNames: Map<string, string> = new Map();
+  private persistEnabled: Map<string, boolean> = new Map();
+  private persistTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  // Captured at panel registration so resetPanel can restore even after edits drift baseValues
+  private originalDefaults: Map<string, Record<string, DialValue>> = new Map();
 
   registerPanel(id: string, name: string, config: DialConfig, shortcuts?: Record<string, ShortcutConfig>): void {
     const controls = this.parseConfig(config, '', shortcuts);
-    const values = this.flattenValues(config, '');
+    const defaults = this.flattenValues(config, '');
 
     // Set initial transition modes based on config types
-    this.initTransitionModes(config, '', values);
+    this.initTransitionModes(config, '', defaults);
+
+    // Capture pristine defaults so resetPanel can restore them even after edits
+    this.originalDefaults.set(id, { ...defaults });
+    this.panelNames.set(id, name);
+
+    // Default persistence on. Per-panel toggle via setPersistenceEnabled.
+    if (!this.persistEnabled.has(id)) {
+      this.persistEnabled.set(id, true);
+    }
+
+    // Overlay any persisted values, normalized against the new config
+    const values = this.hydrateValues(id, defaults, controls);
 
     this.panels.set(id, { id, name, controls, values, shortcuts: shortcuts ?? {} });
     this.snapshots.set(id, { ...values });
@@ -165,6 +213,10 @@ class DialStoreClass {
       }
     }
 
+    // Refresh originalDefaults and panelName for the new config shape
+    this.originalDefaults.set(id, { ...defaultValues });
+    this.panelNames.set(id, name);
+
     const nextPanel: PanelConfig = { id, name, controls, values: nextValues, shortcuts: shortcuts ?? existing.shortcuts };
     this.panels.set(id, nextPanel);
     this.snapshots.set(id, { ...nextValues });
@@ -187,22 +239,63 @@ class DialStoreClass {
 
     this.baseValues.set(id, nextBaseValues);
 
+    this.schedulePersist(id);
     this.notify(id);
     this.notifyGlobal();
   }
 
   unregisterPanel(id: string): void {
+    // Flush any pending persist before tearing down
+    const pendingTimer = this.persistTimers.get(id);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.persistTimers.delete(id);
+      this.persist(id);
+    }
+
     this.panels.delete(id);
     this.listeners.delete(id);
     this.snapshots.delete(id);
     this.actionListeners.delete(id);
     this.baseValues.delete(id);
+    this.history.delete(id);
+    this.discardedBranches.delete(id);
+    this.activeGroups.delete(id);
+    this.historyListeners.delete(id);
+    this.originalDefaults.delete(id);
+    this.panelNames.delete(id);
+    this.persistEnabled.delete(id);
+    if (this.lastActivePanelId === id) {
+      this.lastActivePanelId = null;
+    }
     this.notifyGlobal();
+  }
+
+  // Most recently interacted panel — useful for scoping global actions like undo/redo.
+  // Falls back to the first registered panel if no interaction has happened yet.
+  getLastActivePanelId(): string | null {
+    if (this.lastActivePanelId && this.panels.has(this.lastActivePanelId)) {
+      return this.lastActivePanelId;
+    }
+    const first = this.panels.keys().next();
+    return first.done ? null : first.value;
   }
 
   updateValue(panelId: string, path: string, value: DialValue): void {
     const panel = this.panels.get(panelId);
     if (!panel) return;
+
+    this.lastActivePanelId = panelId;
+
+    const previousValue = panel.values[path];
+    const isAtomic = !this.activeGroups.has(panelId);
+
+    // For atomic (non-grouped) changes, capture the BEFORE state so undo can restore it.
+    // Skip the snapshot if the value didn't actually change.
+    const before: HistorySnapshot | null =
+      isAtomic && previousValue !== value
+        ? { values: { ...panel.values }, timestamp: Date.now() }
+        : null;
 
     panel.values[path] = value;
 
@@ -217,8 +310,13 @@ class DialStoreClass {
       if (base) base[path] = value;
     }
 
+    if (before) {
+      this.commitHistory(panelId, before);
+    }
+
     // Create a new snapshot reference so useSyncExternalStore detects the change
     this.snapshots.set(panelId, { ...panel.values });
+    this.schedulePersist(panelId);
     this.notify(panelId);
   }
 
@@ -236,8 +334,25 @@ class DialStoreClass {
     const panel = this.panels.get(panelId);
     if (!panel) return;
 
-    panel.values[`${path}.__mode`] = mode;
+    this.lastActivePanelId = panelId;
+
+    const modeKey = `${path}.__mode`;
+    const previousMode = panel.values[modeKey];
+    const isAtomic = !this.activeGroups.has(panelId);
+
+    const before: HistorySnapshot | null =
+      isAtomic && previousMode !== mode
+        ? { values: { ...panel.values }, timestamp: Date.now() }
+        : null;
+
+    panel.values[modeKey] = mode;
+
+    if (before) {
+      this.commitHistory(panelId, before);
+    }
+
     this.snapshots.set(panelId, { ...panel.values });
+    this.schedulePersist(panelId);
     this.notify(panelId);
   }
 
@@ -327,10 +442,18 @@ class DialStoreClass {
     const preset = presets.find(p => p.id === presetId);
     if (!preset) return;
 
+    const before: HistorySnapshot = {
+      values: { ...panel.values },
+      timestamp: Date.now(),
+      label: `before load: ${preset.name}`,
+    };
+
     // Apply preset values
     panel.values = { ...preset.values };
+    this.commitHistory(panelId, before);
     this.snapshots.set(panelId, { ...panel.values });
     this.activePreset.set(panelId, presetId);
+    this.schedulePersist(panelId);
     this.notify(panelId);
   }
 
@@ -363,10 +486,17 @@ class DialStoreClass {
     const panel = this.panels.get(panelId);
     const base = this.baseValues.get(panelId);
     if (panel && base) {
+      const before: HistorySnapshot = {
+        values: { ...panel.values },
+        timestamp: Date.now(),
+        label: 'before clear preset',
+      };
       panel.values = { ...base };
+      this.commitHistory(panelId, before);
       this.snapshots.set(panelId, { ...panel.values });
     }
     this.activePreset.set(panelId, null);
+    this.schedulePersist(panelId);
     this.notify(panelId);
   }
 
@@ -714,6 +844,334 @@ class DialStoreClass {
 
     visit(controls);
     return map;
+  }
+
+  // ─── History (undo/redo, snapshot timeline, branch stash) ───────────────────
+
+  // Start a group: subsequent updateValue calls won't push history until endGroup.
+  // The "before" state is captured once at begin; one history entry is committed on end.
+  // Use for drag interactions (slider, color) where many micro-updates should collapse to one undo step.
+  beginGroup(panelId: string, label?: string): void {
+    const panel = this.panels.get(panelId);
+    if (!panel) return;
+    if (this.activeGroups.has(panelId)) return; // nested begin is a no-op
+
+    this.lastActivePanelId = panelId;
+
+    this.activeGroups.set(panelId, {
+      values: { ...panel.values },
+      timestamp: Date.now(),
+      label,
+    });
+  }
+
+  endGroup(panelId: string): void {
+    const pending = this.activeGroups.get(panelId);
+    if (!pending) return;
+    this.activeGroups.delete(panelId);
+
+    const panel = this.panels.get(panelId);
+    if (!panel) return;
+
+    // No commit if the group ended without any net change
+    if (this.valuesEqual(pending.values, panel.values)) return;
+
+    this.commitHistory(panelId, pending);
+  }
+
+  // Abandon a group without committing. Reverts panel values to the captured before state.
+  cancelGroup(panelId: string): void {
+    const pending = this.activeGroups.get(panelId);
+    if (!pending) return;
+    this.activeGroups.delete(panelId);
+
+    const panel = this.panels.get(panelId);
+    if (!panel) return;
+
+    panel.values = { ...pending.values };
+    this.snapshots.set(panelId, { ...panel.values });
+    this.schedulePersist(panelId);
+    this.notify(panelId);
+  }
+
+  isInGroup(panelId: string): boolean {
+    return this.activeGroups.has(panelId);
+  }
+
+  undo(panelId: string): boolean {
+    const h = this.history.get(panelId);
+    if (!h || h.past.length === 0) return false;
+
+    const panel = this.panels.get(panelId);
+    if (!panel) return false;
+
+    h.future.push({
+      values: { ...panel.values },
+      timestamp: Date.now(),
+    });
+    if (h.future.length > MAX_HISTORY) h.future.shift();
+
+    const previous = h.past.pop()!;
+    panel.values = { ...previous.values };
+    this.snapshots.set(panelId, { ...panel.values });
+
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
+
+    this.schedulePersist(panelId);
+    this.notify(panelId);
+    this.notifyHistory(panelId);
+    return true;
+  }
+
+  redo(panelId: string): boolean {
+    const h = this.history.get(panelId);
+    if (!h || h.future.length === 0) return false;
+
+    const panel = this.panels.get(panelId);
+    if (!panel) return false;
+
+    h.past.push({
+      values: { ...panel.values },
+      timestamp: Date.now(),
+    });
+    if (h.past.length > MAX_HISTORY) h.past.shift();
+
+    const next = h.future.pop()!;
+    panel.values = { ...next.values };
+    this.snapshots.set(panelId, { ...panel.values });
+
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
+
+    this.schedulePersist(panelId);
+    this.notify(panelId);
+    this.notifyHistory(panelId);
+    return true;
+  }
+
+  canUndo(panelId: string): boolean {
+    return (this.history.get(panelId)?.past.length ?? 0) > 0;
+  }
+
+  canRedo(panelId: string): boolean {
+    return (this.history.get(panelId)?.future.length ?? 0) > 0;
+  }
+
+  getHistory(panelId: string): PanelHistory {
+    return this.history.get(panelId) ?? EMPTY_HISTORY;
+  }
+
+  subscribeHistory(panelId: string, listener: Listener): () => void {
+    if (!this.historyListeners.has(panelId)) {
+      this.historyListeners.set(panelId, new Set());
+    }
+    this.historyListeners.get(panelId)!.add(listener);
+
+    return () => {
+      this.historyListeners.get(panelId)?.delete(listener);
+    };
+  }
+
+  clearHistory(panelId: string): void {
+    this.history.delete(panelId);
+    this.discardedBranches.delete(panelId);
+    this.activeGroups.delete(panelId);
+    this.notifyHistory(panelId);
+  }
+
+  getDiscardedBranches(panelId: string): HistorySnapshot[][] {
+    return this.discardedBranches.get(panelId) ?? [];
+  }
+
+  // Restore the most recently discarded future branch as the redo stack.
+  // Useful when the user branched off a playback and immediately regrets it.
+  restoreDiscardedBranch(panelId: string): boolean {
+    const stash = this.discardedBranches.get(panelId);
+    if (!stash || stash.length === 0) return false;
+
+    const branch = stash.pop()!;
+    const existing = this.history.get(panelId);
+    const past = existing?.past ?? [];
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past, future: branch });
+
+    this.notifyHistory(panelId);
+    return true;
+  }
+
+  // Commit a captured "before" snapshot to past[]. Clears future and stashes it if non-empty.
+  private commitHistory(panelId: string, before: HistorySnapshot): void {
+    let h = this.history.get(panelId);
+    if (!h) {
+      h = { past: [], future: [] };
+    }
+
+    h.past.push(before);
+    if (h.past.length > MAX_HISTORY) h.past.shift();
+
+    if (h.future.length > 0) {
+      const stash = this.discardedBranches.get(panelId) ?? [];
+      stash.push(h.future);
+      if (stash.length > MAX_DISCARDED_BRANCHES) stash.shift();
+      this.discardedBranches.set(panelId, stash);
+      h.future = [];
+    }
+
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
+    this.notifyHistory(panelId);
+  }
+
+  private notifyHistory(panelId: string): void {
+    this.historyListeners.get(panelId)?.forEach(fn => fn());
+  }
+
+  private valuesEqual(a: Record<string, DialValue>, b: Record<string, DialValue>): boolean {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    for (const key of keysA) {
+      if (a[key] !== b[key]) return false;
+    }
+    return true;
+  }
+
+  // ─── Persistence (localStorage, debounced) ──────────────────────────────────
+
+  // Toggle persistence at the panel level. Disabling also clears any saved blob.
+  setPersistenceEnabled(panelId: string, enabled: boolean): void {
+    this.persistEnabled.set(panelId, enabled);
+    if (!enabled) {
+      this.clearStorage(panelId);
+    } else {
+      // If newly enabled, flush current state right away
+      this.persist(panelId);
+    }
+  }
+
+  // Reset a panel to its original config defaults. Pushes a history entry so the user can undo.
+  // Clears the active preset and any persisted blob; future edits will repopulate storage.
+  resetPanel(panelId: string): void {
+    const panel = this.panels.get(panelId);
+    const defaults = this.originalDefaults.get(panelId);
+    if (!panel || !defaults) return;
+
+    const before: HistorySnapshot = {
+      values: { ...panel.values },
+      timestamp: Date.now(),
+      label: 'before reset',
+    };
+
+    panel.values = { ...defaults };
+    this.baseValues.set(panelId, { ...defaults });
+    this.snapshots.set(panelId, { ...panel.values });
+    this.activePreset.set(panelId, null);
+    this.activeGroups.delete(panelId);
+
+    this.commitHistory(panelId, before);
+    this.clearStorage(panelId);
+
+    this.notify(panelId);
+  }
+
+  private persistKey(panelId: string): string | null {
+    const name = this.panelNames.get(panelId);
+    if (!name) return null;
+    return `${PERSIST_KEY_PREFIX}:${name}:${PERSIST_KEY_VERSION}`;
+  }
+
+  // Coalesces rapid mutations (slider drag, etc.) into one localStorage write.
+  private schedulePersist(panelId: string): void {
+    if (!this.persistEnabled.get(panelId)) return;
+    if (typeof localStorage === 'undefined') return;
+
+    const existing = this.persistTimers.get(panelId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(() => {
+      this.persistTimers.delete(panelId);
+      this.persist(panelId);
+    }, PERSIST_DEBOUNCE_MS);
+
+    this.persistTimers.set(panelId, timer);
+  }
+
+  private persist(panelId: string): void {
+    if (!this.persistEnabled.get(panelId)) return;
+    if (typeof localStorage === 'undefined') return;
+
+    const panel = this.panels.get(panelId);
+    const key = this.persistKey(panelId);
+    if (!panel || !key) return;
+
+    try {
+      localStorage.setItem(key, JSON.stringify(panel.values));
+    } catch {
+      // Quota exceeded, blocked storage, etc. — silently skip; persistence is best-effort
+    }
+  }
+
+  private clearStorage(panelId: string): void {
+    if (typeof localStorage === 'undefined') return;
+    const key = this.persistKey(panelId);
+    if (!key) return;
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // best-effort
+    }
+  }
+
+  // Read persisted values for this panel (if any) and merge over the supplied defaults,
+  // normalizing against the current config so removed/changed paths fall back cleanly.
+  private hydrateValues(
+    panelId: string,
+    defaults: Record<string, DialValue>,
+    controls: ControlMeta[]
+  ): Record<string, DialValue> {
+    if (!this.persistEnabled.get(panelId)) return { ...defaults };
+    if (typeof localStorage === 'undefined') return { ...defaults };
+
+    const key = this.persistKey(panelId);
+    if (!key) return { ...defaults };
+
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(key);
+    } catch {
+      return { ...defaults };
+    }
+    if (!raw) return { ...defaults };
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ...defaults };
+    }
+    if (!parsed || typeof parsed !== 'object') return { ...defaults };
+
+    const stored = parsed as Record<string, DialValue>;
+    const controlsByPath = this.mapControlsByPath(controls);
+    const merged: Record<string, DialValue> = {};
+
+    for (const [path, defaultValue] of Object.entries(defaults)) {
+      // For internal __mode keys (transition mode), accept the stored string as-is
+      if (path.endsWith('.__mode')) {
+        const storedMode = stored[path];
+        merged[path] = typeof storedMode === 'string' ? storedMode : defaultValue;
+        continue;
+      }
+
+      merged[path] = this.normalizePreservedValue(
+        stored[path],
+        defaultValue,
+        controlsByPath.get(path)
+      );
+    }
+
+    return merged;
   }
 
 }

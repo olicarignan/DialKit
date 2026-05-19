@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { DialStore, PanelConfig } from '../store/DialStore';
 import { Panel } from './Panel';
 import { ShortcutListener } from './ShortcutListener';
+import { PlaybackDock } from './PlaybackDock';
 
 export type DialPosition = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
 export type DialMode = 'popover' | 'inline';
@@ -257,6 +258,9 @@ export function DialRoot({ position = 'top-right', defaultOpen = true, mode = 'p
           <Panel key={panel.id} panel={panel} defaultOpen={inline || defaultOpen} inline={inline} />
         ))}
       </div>
+      {!inline && (
+        <PlaybackDock theme={theme} frostedMode={theme === 'frosted' ? frostedMode : undefined} />
+      )}
     </div>
   </ShortcutListener>
   );

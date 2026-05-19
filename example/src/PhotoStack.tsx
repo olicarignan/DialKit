@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useDialKit } from 'dialkit';
+import { useDialKit, useDialKitPlayback } from 'dialkit';
+
+// Duration of one full cycle (1.0 progress) at speed=1, in ms
+const CYCLE_DURATION = 2500;
 
 const PHOTOS = [
   { id: 1, src: '/photos/one.avif', color: '#c41e3a' },
@@ -60,6 +63,41 @@ export function PhotoStack() {
       if (action === 'next') next();
     },
   });
+
+  // Transport state from the playback dock. Speed scales the auto-cycle rate, isPlaying
+  // freezes it, and progress is the position within the current cycle (0..1). The host
+  // writes progress as it advances and reads it back when the user scrubs.
+  const { isPlaying, speed, progress, setProgress } = useDialKitPlayback('Photo Stack');
+
+  // Keep refs in sync so the rAF tick reads the latest values without re-binding.
+  const speedRef = useRef(speed);
+  const progressRef = useRef(progress);
+  useEffect(() => { speedRef.current = speed; }, [speed]);
+  useEffect(() => { progressRef.current = progress; }, [progress]);
+
+  // Auto-advance photos while playing. dt advances `progress` toward 1; on each crossing
+  // we trigger next() and wrap back to 0.
+  useEffect(() => {
+    if (!isPlaying) return;
+    let lastTime = performance.now();
+    let rafId = 0;
+    const tick = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const advanced = progressRef.current + (dt / CYCLE_DURATION) * speedRef.current;
+      if (advanced >= 1) {
+        next();
+        progressRef.current = 0;
+        setProgress(0);
+      } else {
+        progressRef.current = advanced;
+        setProgress(advanced);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, setProgress]);
 
   const visibleCount = 2;
   const visiblePhotos = [];

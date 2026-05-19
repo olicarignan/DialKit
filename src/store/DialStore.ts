@@ -306,6 +306,15 @@ class DialStoreClass {
     return first.done ? null : first.value;
   }
 
+  // Look up a panel's runtime id by the name the host passed to useDialKit.
+  // Used by useDialKitPlayback so the host can refer to its panel by name.
+  getPanelIdByName(name: string): string | null {
+    for (const [id, panelName] of this.panelNames) {
+      if (panelName === name) return id;
+    }
+    return null;
+  }
+
   subscribeLastActive(listener: Listener): () => void {
     this.lastActiveListeners.add(listener);
     return () => {

@@ -138,8 +138,19 @@ const PERSIST_DEBOUNCE_MS = 300;
 const PERSIST_KEY_PREFIX = 'dialkit';
 const PERSIST_KEY_VERSION = 'v1';
 
-// Stable empty object for unregistered panels (React 19 useSyncExternalStore requirement)
+// Stable empty objects for unregistered panels (React 19 useSyncExternalStore requirement —
+// returning a fresh fallback on every read trips the infinite-loop detection).
 const EMPTY_VALUES: Record<string, DialValue> = Object.freeze({});
+const EMPTY_HISTORY: PanelHistory = Object.freeze({ past: [], future: [] }) as PanelHistory;
+const DEFAULT_PLAYBACK: PlaybackState = Object.freeze({
+  status: 'idle',
+  playheadMs: 0,
+  speed: 1,
+  direction: 1,
+  loop: false,
+  rangeStart: null,
+  rangeEnd: null,
+}) as PlaybackState;
 
 class DialStoreClass {
   private panels: Map<string, PanelConfig> = new Map();
@@ -944,6 +955,9 @@ class DialStoreClass {
     panel.values = { ...previous.values };
     this.snapshots.set(panelId, { ...panel.values });
 
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
+
     this.schedulePersist(panelId);
     this.notify(panelId);
     this.notifyHistory(panelId);
@@ -967,6 +981,9 @@ class DialStoreClass {
     panel.values = { ...next.values };
     this.snapshots.set(panelId, { ...panel.values });
 
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
+
     this.schedulePersist(panelId);
     this.notify(panelId);
     this.notifyHistory(panelId);
@@ -982,7 +999,7 @@ class DialStoreClass {
   }
 
   getHistory(panelId: string): PanelHistory {
-    return this.history.get(panelId) ?? { past: [], future: [] };
+    return this.history.get(panelId) ?? EMPTY_HISTORY;
   }
 
   subscribeHistory(panelId: string, listener: Listener): () => void {
@@ -1014,12 +1031,10 @@ class DialStoreClass {
     if (!stash || stash.length === 0) return false;
 
     const branch = stash.pop()!;
-    let h = this.history.get(panelId);
-    if (!h) {
-      h = { past: [], future: [] };
-      this.history.set(panelId, h);
-    }
-    h.future = branch;
+    const existing = this.history.get(panelId);
+    const past = existing?.past ?? [];
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past, future: branch });
 
     this.notifyHistory(panelId);
     return true;
@@ -1030,7 +1045,6 @@ class DialStoreClass {
     let h = this.history.get(panelId);
     if (!h) {
       h = { past: [], future: [] };
-      this.history.set(panelId, h);
     }
 
     h.past.push(before);
@@ -1044,6 +1058,8 @@ class DialStoreClass {
       h.future = [];
     }
 
+    // Replace the wrapper so useSyncExternalStore detects the change
+    this.history.set(panelId, { past: h.past, future: h.future });
     this.notifyHistory(panelId);
   }
 
@@ -1204,7 +1220,7 @@ class DialStoreClass {
   // duration of playback so it doesn't shift if the user (or undo) mutates history.
 
   getPlaybackState(panelId: string): PlaybackState {
-    return this.playback.get(panelId) ?? defaultPlaybackState();
+    return this.playback.get(panelId) ?? DEFAULT_PLAYBACK;
   }
 
   subscribePlayback(panelId: string, listener: Listener): () => void {

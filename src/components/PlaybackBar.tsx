@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { motion } from 'motion/react';
 import { DialStore } from '../store/DialStore';
 
@@ -6,8 +6,9 @@ interface PlaybackBarProps {
   panelId: string;
 }
 
-// Transport strip shown at the bottom of the panel when there's any history to replay.
-// Drives the playback engine in DialStore: jump/step/play-pause-restart.
+// Minimal playback strip: plays the panel's history on loop by default. The user only sees
+// a pause button (unless they've paused, in which case it flips back to play). A small speed
+// slider underneath lets them slow or accelerate playback between 0× and 2×.
 export function PlaybackBar({ panelId }: PlaybackBarProps) {
   const history = useSyncExternalStore(
     (cb) => DialStore.subscribeHistory(panelId, cb),
@@ -21,58 +22,56 @@ export function PlaybackBar({ panelId }: PlaybackBarProps) {
     () => DialStore.getPlaybackState(panelId),
   );
 
-  // Need at least one historical snapshot — the timeline always appends current values
-  // as a synthetic last entry, so one snapshot means a 2-entry timeline.
-  if (history.past.length < 1) return null;
-
+  const hasTimeline = history.past.length >= 1;
   const isPlaying = playback.status === 'playing';
-  const isEnded = playback.status === 'ended';
 
-  const handlePlayPause = () => {
+  // Auto-start once the timeline is non-empty and we haven't yet played. Manual pause keeps
+  // status='paused' which won't satisfy this condition again, so we don't fight the user.
+  useEffect(() => {
+    if (hasTimeline && playback.status === 'idle') {
+      DialStore.startPlayback(panelId);
+    }
+  }, [hasTimeline, playback.status, panelId]);
+
+  if (!hasTimeline) return null;
+
+  const handleTogglePlay = () => {
     if (isPlaying) {
       DialStore.pausePlayback(panelId);
-    } else if (isEnded) {
-      DialStore.jumpToStart(panelId);
-      DialStore.startPlayback(panelId);
     } else {
       DialStore.startPlayback(panelId);
     }
   };
 
-  const playGlyph = isPlaying ? '⏸' : isEnded ? '↻' : '▶';
-  const playTitle = isPlaying ? 'Pause' : isEnded ? 'Restart' : 'Play';
+  const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    DialStore.setPlaybackSpeed(panelId, parseFloat(e.target.value));
+  };
 
   return (
     <div className="dialkit-playback-bar">
-      <TransportButton onClick={() => DialStore.jumpToStart(panelId)} title="Jump to start" glyph="⏮" />
-      <TransportButton onClick={() => DialStore.stepBack(panelId)} title="Previous snapshot" glyph="⏪" />
-      <TransportButton onClick={handlePlayPause} title={playTitle} glyph={playGlyph} primary />
-      <TransportButton onClick={() => DialStore.stepForward(panelId)} title="Next snapshot" glyph="⏩" />
-      <TransportButton onClick={() => DialStore.jumpToEnd(panelId)} title="Jump to end" glyph="⏭" />
-    </div>
-  );
-}
+      <motion.button
+        className="dialkit-playback-button-primary"
+        onClick={handleTogglePlay}
+        title={isPlaying ? 'Pause' : 'Play'}
+        whileTap={{ scale: 0.9 }}
+        transition={{ type: 'spring', visualDuration: 0.15, bounce: 0.3 }}
+      >
+        {isPlaying ? '⏸' : '▶'}
+      </motion.button>
 
-function TransportButton({
-  onClick,
-  title,
-  glyph,
-  primary,
-}: {
-  onClick: () => void;
-  title: string;
-  glyph: string;
-  primary?: boolean;
-}) {
-  return (
-    <motion.button
-      className={`dialkit-playback-button${primary ? ' dialkit-playback-button-primary' : ''}`}
-      onClick={onClick}
-      title={title}
-      whileTap={{ scale: 0.9 }}
-      transition={{ type: 'spring', visualDuration: 0.15, bounce: 0.3 }}
-    >
-      {glyph}
-    </motion.button>
+      <input
+        className="dialkit-playback-speed"
+        type="range"
+        min={0}
+        max={2}
+        step={0.05}
+        value={playback.speed}
+        onChange={handleSpeedChange}
+        aria-label="Playback speed"
+        title={`Speed ${playback.speed.toFixed(2)}×`}
+      />
+
+      <span className="dialkit-playback-speed-value">{playback.speed.toFixed(2)}×</span>
+    </div>
   );
 }

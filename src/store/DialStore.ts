@@ -147,7 +147,7 @@ const DEFAULT_PLAYBACK: PlaybackState = Object.freeze({
   playheadMs: 0,
   speed: 1,
   direction: 1,
-  loop: false,
+  loop: true,
   rangeStart: null,
   rangeEnd: null,
 }) as PlaybackState;
@@ -1496,7 +1496,7 @@ function defaultPlaybackState(): PlaybackState {
     playheadMs: 0,
     speed: 1,
     direction: 1,
-    loop: false,
+    loop: true,
     rangeStart: null,
     rangeEnd: null,
   };
